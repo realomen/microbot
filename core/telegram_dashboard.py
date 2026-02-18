@@ -34,16 +34,33 @@ class TelegramDashboard:
             f"Режим: {'PAUSED' if settings.PAUSED else 'RUNNING'}"
         )
 
+
     async def positions(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
         with SessionLocal() as db:
             trades = db.query(Trade).filter(Trade.resolved == False).order_by(desc(Trade.timestamp)).all()
+
+        if not trades:
+            await update.message.reply_text("✅ Нет активных позиций")
+            return
+
+        text = "📊 АКТИВНЫЕ ПОЗИЦИИ + LIVE PnL\n\n"
+        for t in trades:
+            pos = db.query(Position).filter(Position.market_id == t.market_id).first()
+            unreal = f"${pos.unrealized_pnl:+.2f}" if pos and pos.unrealized_pnl is not None else "—"
+            curr = f"{pos.current_price:.4f}" if pos and pos.current_price else "—"
+
+            text += f"🔹 {t.question[:60]}{'...' if len(t.question) > 60 else ''}\n"
+            text += f"   {t.side} | ${t.amount_usd} | Entry {t.entry_price:.4f} → {curr}\n"
+            text += f"   Unrealized PnL: {unreal}\n\n"
+        await update.message.reply_text(text)
+
+        with SessionLocal() as db:
+            trades = db.query(Trade).filterrade.resolved == False).order_by(desc(Trade.timestamp)).all()
         if not trades:
             await update.message.reply_text("✅ Нет активных позиций")
             return
         text = "📊 АКТИВНЫЕ ПОЗИЦИИ\n\n"
         for t in trades:
-            text += f"🔹 {t.question[:70]}...\n   {t.side} | ${t.amount_usd} | Entry {t.entry_price:.4f}\n\n"
-        await update.message.reply_text(text)
 
     async def report(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
         with SessionLocal() as db:
