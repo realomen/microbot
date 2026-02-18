@@ -1,7 +1,7 @@
 import structlog
 import asyncio
 import os
-import nest_asyncio   # ← ОБЯЗАТЕЛЬНО
+import nest_asyncio
 
 nest_asyncio.apply()
 
@@ -39,18 +39,22 @@ def scan_and_trade():
                 if is_fifty_fifty_market(m):
                     potential += 1
                     if risk.can_trade(m["id"]):
-                        token, side, amount = decide_side_and_amount(m)
-                        logger.info("✅ PLACING BET", question=m.get("question","")[:60], side=side, amount=amount)
-                        executor.execute(token, side, amount)
-                        if not settings.DRY_RUN:
-                            entry_price = float(m["outcomePrices"][0 if side == "BUY" else 1])
-                            risk.register_trade(m, amount, entry_price, amount / entry_price, side)
-                        bets += 1
+                        try:
+                            token, side, amount = decide_side_and_amount(m)
+                            logger.info("✅ PLACING BET", question=m.get("question", "")[:65], side=side, amount=amount)
+                            executor.execute(token, side, amount)
+                            if not settings.DRY_RUN:
+                                entry_price = float(m["outcomePrices"][0 if side == "BUY" else 1])
+                                risk.register_trade(m, amount, entry_price, amount / entry_price, side)
+                            bets += 1
+                        except Exception as e:
+                            logger.error("Failed to place bet on this market", question=m.get("question", "")[:60], error=str(e))
+                            continue  # продолжаем сканировать остальные рынки
         logger.info("Scan completed", total_markets=count, potential_50_50=potential, bets_placed=bets)
     except Exception as e:
         logger.error("Scan crashed", error=str(e))
 
-scheduler.add_job(scan_and_trade, IntervalTrigger(minutes=3))  # 3 минуты — удобно для теста
+scheduler.add_job(scan_and_trade, IntervalTrigger(minutes=3))
 scheduler.add_job(withdrawer.withdraw, IntervalTrigger(hours=6))
 scheduler.start()
 
@@ -66,15 +70,14 @@ if __name__ == "__main__":
                 bot = Bot(token=settings.TELEGRAM_TOKEN)
                 await bot.send_message(
                     chat_id=settings.TELEGRAM_CHAT_ID,
-                    text=f"🚀 Бот запущен в тестовом режиме\nСкан каждые 3 минуты | Dry-run: {settings.DRY_RUN}"
+                    text=f"🚀 Бот запущен! Скан каждые 3 минуты | Dry-run: {settings.DRY_RUN}"
                 )
             asyncio.run(send_startup())
             open(flag, 'w').close()
         except Exception as e:
             logger.warning("Startup failed", error=str(e))
 
-    # Первый скан сразу
-    scan_and_trade()
+    scan_and_trade()  # первый скан сразу
 
     dashboard = TelegramDashboard()
     logger.info("Starting Telegram polling...")
