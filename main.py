@@ -1,6 +1,10 @@
 import structlog
 import asyncio
 import os
+import nest_asyncio   # ← ФИКС EVENT LOOP
+
+nest_asyncio.apply()  # ← ЭТО РЕШАЕТ "There is no current event loop"
+
 from apscheduler.schedulers.background import BackgroundScheduler
 from apscheduler.triggers.interval import IntervalTrigger
 from telegram import Bot
@@ -12,11 +16,11 @@ from core.executor import Executor
 from core.risk import RiskManager
 from core.withdrawer import Withdrawer
 from core.telegram_dashboard import TelegramDashboard
-from models import init_db   # ← новый импорт
+from models import init_db
 
 logger = structlog.get_logger()
 
-# Инициализируем БД с ожиданием Postgres
+# Инициализация БД с ожиданием
 init_db()
 
 executor = Executor()
@@ -53,7 +57,7 @@ logger.info("Background scheduler started")
 if __name__ == "__main__":
     logger.info("🚀 Polymarket 50/50 MicroBot started", dry_run=settings.DRY_RUN)
 
-    # Защита от спама + правильный asyncio
+    # Одноразовое стартовое сообщение
     flag = "/tmp/startup_sent.flag"
     if not os.path.exists(flag):
         try:
@@ -61,15 +65,17 @@ if __name__ == "__main__":
                 bot = Bot(token=settings.TELEGRAM_TOKEN)
                 await bot.send_message(
                     chat_id=settings.TELEGRAM_CHAT_ID,
-                    text=f"🚀 Polymarket 50/50 MicroBot запущен успешно!\n"
-                         f"Режим: {'DRY-RUN' if settings.DRY_RUN else 'LIVE'} | "
-                         f"Экспозиция: ${settings.MAX_EXPOSURE_USD}"
+                    text=f"🚀 Polymarket 50/50 MicroBot ЗАПУЩЕН УСПЕШНО!\n"
+                         f"Режим: {'DRY-RUN' if settings.DRY_RUN else 'LIVE TRADING'}\n"
+                         f"Экспозиция: ${settings.MAX_EXPOSURE_USD} | Ставка: ${settings.BET_SIZE_USD}"
                 )
             asyncio.run(send_startup())
             open(flag, 'w').close()
+            logger.info("Startup message sent")
         except Exception as e:
             logger.warning("Startup message failed", error=str(e))
 
+    # Telegram polling в главном потоке (стабильно с nest_asyncio)
     dashboard = TelegramDashboard()
     logger.info("Starting Telegram polling...")
     dashboard.app.run_polling(drop_pending_updates=True)
