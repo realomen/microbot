@@ -1,6 +1,9 @@
 import streamlit as st
 import pandas as pd
 from datetime import datetime
+
+# === Наши настройки ===
+from config.settings import settings
 from models import Trade, Position, SessionLocal
 from sqlalchemy import func, desc
 
@@ -18,7 +21,7 @@ with SessionLocal() as db:
     resolved_count = db.query(func.count(Trade.id)).filter(Trade.resolved == True).scalar() or 1
     win_rate = round(wins / resolved_count * 100, 1)
 
-col1.metric("Активных ставок", active, delta=None)
+col1.metric("Активных ставок", active)
 col2.metric("Экспозиция", f"${exposure:.1f}")
 col3.metric("Реализованный PnL", f"${total_pnl:.2f}", delta=f"{total_pnl:+.2f}")
 col4.metric("Win-rate", f"{win_rate}%")
@@ -41,9 +44,9 @@ if trades:
     st.subheader("📈 Кумулятивный PnL")
     st.line_chart(df.set_index("date")["cum_pnl"], use_container_width=True)
 else:
-    st.info("📊 Пока нет закрытых сделок. График PnL появится после первых resolution.")
+    st.info("📊 Пока нет закрытых сделок. График появится после первых resolution.")
 
-# Открытые позиции с live PnL
+# Открытые позиции
 st.subheader("🔴 Открытые позиции + Live PnL")
 with SessionLocal() as db:
     open_pos = db.query(Trade, Position)\
@@ -68,4 +71,9 @@ if open_pos:
 else:
     st.success("✅ Все позиции закрыты или ещё не открыты.")
 
-st.caption(f"Последнее обновление: {datetime.now().strftime('%d.%m.%Y %H:%M:%S')} | Dry-run: {st.secrets.get('DRY_RUN', 'false')}")
+# Нижняя строка
+st.caption(
+    f"Последнее обновление: {datetime.now().strftime('%d.%m.%Y %H:%M:%S')} | "
+    f"Dry-run: {settings.DRY_RUN} | "
+    f"Экспозиция лимит: ${settings.MAX_EXPOSURE_USD}"
+)
