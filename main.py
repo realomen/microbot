@@ -12,8 +12,12 @@ from core.executor import Executor
 from core.risk import RiskManager
 from core.withdrawer import Withdrawer
 from core.telegram_dashboard import TelegramDashboard
+from models import init_db   # ← новый импорт
 
 logger = structlog.get_logger()
+
+# Инициализируем БД с ожиданием Postgres
+init_db()
 
 executor = Executor()
 risk = RiskManager()
@@ -49,8 +53,8 @@ logger.info("Background scheduler started")
 if __name__ == "__main__":
     logger.info("🚀 Polymarket 50/50 MicroBot started", dry_run=settings.DRY_RUN)
 
-    # Защита от спама startup-сообщений
-    flag = "/tmp/startup_sent"
+    # Защита от спама + правильный asyncio
+    flag = "/tmp/startup_sent.flag"
     if not os.path.exists(flag):
         try:
             async def send_startup():
@@ -59,15 +63,13 @@ if __name__ == "__main__":
                     chat_id=settings.TELEGRAM_CHAT_ID,
                     text=f"🚀 Polymarket 50/50 MicroBot запущен успешно!\n"
                          f"Режим: {'DRY-RUN' if settings.DRY_RUN else 'LIVE'} | "
-                         f"Экспозиция: ${settings.MAX_EXPOSURE_USD} | Ставка: ${settings.BET_SIZE_USD}"
+                         f"Экспозиция: ${settings.MAX_EXPOSURE_USD}"
                 )
             asyncio.run(send_startup())
             open(flag, 'w').close()
-            logger.info("Startup message sent (first time)")
         except Exception as e:
             logger.warning("Startup message failed", error=str(e))
 
-    # Telegram в ГЛАВНОМ потоке — единственный стабильный способ
     dashboard = TelegramDashboard()
     logger.info("Starting Telegram polling...")
-    dashboard.app.run_polling(drop_pending_updates=True)  # очищаем старые сообщения
+    dashboard.app.run_polling(drop_pending_updates=True)

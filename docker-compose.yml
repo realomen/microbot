@@ -1,3 +1,5 @@
+version: '3.9'
+
 services:
   postgres:
     image: postgres:16-alpine
@@ -5,15 +7,23 @@ services:
       POSTGRES_DB: polymarket_bot
       POSTGRES_USER: bot
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
-    ports: ["5432:5432"]
+    ports:
+      - "5432:5432"
     volumes:
       - pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U bot -d polymarket_bot"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
     restart: unless-stopped
 
   bot:
     build: .
     env_file: .env
-    depends_on: [postgres]
+    depends_on:
+      postgres:
+        condition: service_healthy   # ← ЖДЁТ ПОЛНОЙ ГОТОВНОСТИ БД!
     restart: unless-stopped
     volumes:
       - .:/app

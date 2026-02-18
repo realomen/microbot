@@ -2,7 +2,11 @@ from sqlalchemy import create_engine, Column, Integer, String, Float, DateTime, 
 from sqlalchemy.orm import declarative_base, sessionmaker
 from sqlalchemy.sql import func
 import enum
+import time
 from config.settings import settings
+import structlog
+
+logger = structlog.get_logger()
 
 Base = declarative_base()
 
@@ -38,7 +42,22 @@ class Position(Base):
     unrealized_pnl = Column(Float, default=0.0)
     last_update = Column(DateTime, server_default=func.now())
 
-engine = create_engine(f"postgresql+psycopg2://bot:{settings.POSTGRES_PASSWORD}@postgres:5432/polymarket_bot")
+engine = create_engine(
+    f"postgresql+psycopg2://bot:{settings.POSTGRES_PASSWORD}@postgres:5432/polymarket_bot",
+    pool_pre_ping=True,          # авто-проверка соединения
+    pool_recycle=300
+)
 SessionLocal = sessionmaker(bind=engine)
 
-Base.metadata.create_all(bind=engine)  # для первого запуска
+def init_db(retries=15, delay=2):
+    for i in range(retries):
+        try:
+            Base.metadata.create_all(bind=engine)
+            logger.info("Database tables created successfully")
+            return
+        except Exception as e:
+            logger.warning(f"DB not ready yet (attempt {i+1}/{retries})", error=str(e))
+            time.sleep(delay)
+    raise Exception("Failed to connect to Postgres after retries")
+
+# НЕ вызываем create_all при импорте — только когда нужно
