@@ -1,5 +1,5 @@
 from web3 import Web3
-from web3.middleware import geth_poa_middleware
+from web3.middleware import ExtraDataToPOAMiddleware   # ← НОВЫЙ ИМПОРТ (web3 7.x)
 from models import Trade, SessionLocal
 from sqlalchemy import func
 from config.settings import settings
@@ -9,14 +9,16 @@ from datetime import datetime, timedelta
 logger = structlog.get_logger()
 
 USDC = "0x2791Bca1f2de4661ED88A30C99A7a9449Aa84174"
-ABI = [{"constant":True,"inputs":[],"name":"decimals","outputs":[{"name":"","type":"uint8"}],"type":"function"},
-       {"constant":True,"inputs":[{"name":"_owner","type":"address"}],"name":"balanceOf","outputs":[{"name":"balance","type":"uint256"}],"type":"function"},
-       {"constant":False,"inputs":[{"name":"_to","type":"address"},{"name":"_value","type":"uint256"}],"name":"transfer","outputs":[{"name":"","type":"bool"}],"type":"function"}]
+ABI = [
+    {"constant": True, "inputs": [], "name": "decimals", "outputs": [{"name": "", "type": "uint8"}], "type": "function"},
+    {"constant": True, "inputs": [{"name": "_owner", "type": "address"}], "name": "balanceOf", "outputs": [{"name": "balance", "type": "uint256"}], "type": "function"},
+    {"constant": False, "inputs": [{"name": "_to", "type": "address"}, {"name": "_value", "type": "uint256"}], "name": "transfer", "outputs": [{"name": "", "type": "bool"}], "type": "function"}
+]
 
 class Withdrawer:
     def __init__(self):
         self.w3 = Web3(Web3.HTTPProvider(settings.POLYGON_RPC_URL))
-        self.w3.middleware_onion.inject(geth_poa_middleware, layer=0)
+        self.w3.middleware_onion.inject(ExtraDataToPOAMiddleware, layer=0)  # ← ИСПРАВЛЕНО
         self.account = self.w3.eth.account.from_key(settings.PRIVATE_KEY)
         self.usdc = self.w3.eth.contract(address=USDC, abi=ABI)
         self.last_withdraw = None
@@ -47,5 +49,5 @@ class Withdrawer:
         })
         signed = self.w3.eth.account.sign_transaction(tx, self.account.key)
         tx_hash = self.w3.eth.send_raw_transaction(signed.raw_transaction)
-        logger.info("AUTO-WITHDRAW", amount=round(amt,2), tx=tx_hash.hex())
+        logger.info("AUTO-WITHDRAW", amount=round(amt, 2), tx=tx_hash.hex())
         self.last_withdraw = datetime.utcnow()
