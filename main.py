@@ -1,10 +1,7 @@
 import structlog
 import asyncio
 import os
-import nest_asyncio   # ← ФИКС EVENT LOOP
-
-nest_asyncio.apply()  # ← ЭТО РЕШАЕТ "There is no current event loop"
-
+import traceback
 from apscheduler.schedulers.background import BackgroundScheduler
 from apscheduler.triggers.interval import IntervalTrigger
 from telegram import Bot
@@ -20,7 +17,6 @@ from models import init_db
 
 logger = structlog.get_logger()
 
-# Инициализация БД с ожиданием
 init_db()
 
 executor = Executor()
@@ -30,33 +26,35 @@ withdrawer = Withdrawer()
 scheduler = BackgroundScheduler()
 
 def scan_and_trade():
-    if settings.PAUSED:
-        return
+    logger.info("=== SCAN JOB STARTED ===")
     try:
         markets = get_active_markets()
         count = 0
+        bet_count = 0
         for event in markets:
             for m in event.get("markets", []):
+                count += 1
                 if is_fifty_fifty_market(m):
                     if risk.can_trade(m["id"]):
                         token, side, amount = decide_side_and_amount(m)
+                        logger.info("Found 50/50 market - placing bet", question=m["question"][:60], side=side, amount=amount)
                         executor.execute(token, side, amount)
                         if not settings.DRY_RUN:
                             entry_price = float(m["outcomePrices"][0 if side == "BUY" else 1])
                             risk.register_trade(m, amount, entry_price, amount / entry_price, side)
-                        count += 1
-        logger.info("Scan completed", markets_scanned=count)
+                        bet_count += 1
+        logger.info("Scan completed", total_markets=count, bets_placed=bet_count)
     except Exception as e:
-        logger.error("Scan error", error=str(e))
+        logger.error("Scan crashed", error=str(e), traceback=traceback.format_exc())
 
-scheduler.add_job(scan_and_trade, IntervalTrigger(minutes=12))
+# === Добавляем задачи ===
+scheduler.add_job(scan_and_trade, IntervalTrigger(minutes=2))   # временно каждые 2 минуты для теста
 scheduler.add_job(withdrawer.withdraw, IntervalTrigger(hours=6))
 scheduler.start()
+
 logger.info("Background scheduler started")
-
-from core.resolver import resolver
-
-scheduler.add_job(resolver.check_resolved, IntervalTrigger(minutes=30))
+logger.info("Scheduled jobs:")
+scheduler.print_jobs()   # ← покажет в логах, что задача действительно добавлена
 
 if __name__ == "__main__":
     logger.info("🚀 Polymarket 50/50 MicroBot started", dry_run=settings.DRY_RUN)
@@ -69,17 +67,18 @@ if __name__ == "__main__":
                 bot = Bot(token=settings.TELEGRAM_TOKEN)
                 await bot.send_message(
                     chat_id=settings.TELEGRAM_CHAT_ID,
-                    text=f"🚀 Polymarket 50/50 MicroBot ЗАПУЩЕН УСПЕШНО!\n"
-                         f"Режим: {'DRY-RUN' if settings.DRY_RUN else 'LIVE TRADING'}\n"
-                         f"Экспозиция: ${settings.MAX_EXPOSURE_USD} | Ставка: ${settings.BET_SIZE_USD}"
+                    text=f"🚀 Бот запущен! Скан каждые 2 минуты (тест-режим)\nDry-run: {settings.DRY_RUN}"
                 )
             asyncio.run(send_startup())
             open(flag, 'w').close()
-            logger.info("Startup message sent")
         except Exception as e:
             logger.warning("Startup message failed", error=str(e))
 
-    # Telegram polling в главном потоке (стабильно с nest_asyncio)
+    # Первый скан сразу при старте (чтобы не ждать 2 минуты)
+    logger.info("Running FIRST manual scan right now...")
+    scan_and_trade()
+
+    # Telegram polling
     dashboard = TelegramDashboard()
     logger.info("Starting Telegram polling...")
     dashboard.app.run_polling(drop_pending_updates=True)
