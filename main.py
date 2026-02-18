@@ -54,6 +54,10 @@ scheduler.add_job(withdrawer.withdraw, IntervalTrigger(hours=6))
 scheduler.start()
 logger.info("Background scheduler started")
 
+from core.resolver import resolver
+
+scheduler.add_job(resolver.check_resolved, IntervalTrigger(minutes=30))
+
 if __name__ == "__main__":
     logger.info("🚀 Polymarket 50/50 MicroBot started", dry_run=settings.DRY_RUN)
 
